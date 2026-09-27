@@ -1,0 +1,18 @@
+# Reverse proxy for the VPS deploy (design-plan.md section 13). Caddy issues
+# and renews a TLS cert for this domain automatically via Let's Encrypt -
+# GitHub Pages serves the frontend over HTTPS, so the gateway must be wss://
+# (design-plan.md 13's "mixed content" note).
+#
+# api.example.com is a placeholder - see docs/deployment.md for the real
+# domain a human needs to buy/point at the VPS before this works.
+api.example.com {
+	@ws path /ws
+	@api path /markets /readyz
+	reverse_proxy @ws gateway-1:8080 gateway-2:8080 {
+		lb_policy least_conn
+	}
+	reverse_proxy @api gateway-1:8080 gateway-2:8080 {
+		lb_policy least_conn
+	}
+	respond /healthz 200
+}

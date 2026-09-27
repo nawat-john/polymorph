@@ -1,0 +1,23 @@
+# Scrapes every service's /metrics (design-plan.md section 10). Targets are
+# docker-compose service names on the internal network, port 9090 (each
+# service's METRICS_ADDR).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ingestor
+    static_configs:
+      - targets: ["ingestor:9090"]
+
+  - job_name: processor
+    static_configs:
+      - targets: ["processor:9090"]
+
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway-1:9090", "gateway-2:9090"]
+
+  - job_name: recorder
+    static_configs:
+      - targets: ["recorder:9090"]

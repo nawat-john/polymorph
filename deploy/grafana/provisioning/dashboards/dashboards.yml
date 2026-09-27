@@ -1,0 +1,14 @@
+# Points Grafana at deploy/grafana/dashboards/ so the JSON committed there
+# loads automatically on startup - no manual import (design-plan.md section
+# 10).
+apiVersion: 1
+
+providers:
+  - name: oddspulse
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

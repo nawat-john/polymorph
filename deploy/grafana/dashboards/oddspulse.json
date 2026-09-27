@@ -1,0 +1,69 @@
+{
+  "title": "OddsPulse",
+  "uid": "oddspulse",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pipeline Throughput",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(ingestor_events_total[1m]))", "legendFormat": "ingestor events/s" },
+        { "refId": "B", "expr": "sum(rate(processor_events_total[1m]))", "legendFormat": "processor events/s" },
+        { "refId": "C", "expr": "sum(rate(gateway_messages_out_total[1m]))", "legendFormat": "gateway messages out/s" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Processor Consumer Lag (pm.raw)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "processor_consume_lag", "legendFormat": "lag (records)" }]
+    },
+    {
+      "id": 3,
+      "title": "Gateway E2E Latency",
+      "type": "heatmap",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(gateway_e2e_latency_seconds_bucket[1m])) by (le)",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Connected Clients",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [{ "refId": "A", "expr": "sum(gateway_clients)", "legendFormat": "clients" }]
+    },
+    {
+      "id": 5,
+      "title": "Slow-client Evictions",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(gateway_slow_client_evictions_total[5m]))", "legendFormat": "evictions/s" }
+      ]
+    }
+  ]
+}

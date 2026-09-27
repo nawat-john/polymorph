@@ -1,0 +1,116 @@
+# Override for the VPS (design-plan.md section 13): adds Caddy (TLS reverse
+# proxy), Prometheus and Grafana, plus resource limits on every service so
+# the whole stack fits the recommended 2 vCPU / 4 GB target. Deploy with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# The limits below are ceilings (safety caps against a single runaway
+# service), not reservations - they intentionally sum to somewhat more than
+# 2 vCPU because services do not all peak at once; the 4 GB memory budget is
+# the one that is not oversubscribed (design-plan.md 16: "Redpanda uses too
+# much memory -> OOM").
+services:
+  redpanda:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1200M
+
+  ingestor:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  processor:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  gateway-1:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  gateway-2:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+  recorder:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 128M
+
+  # design-plan.md section 13's Caddyfile example: TLS-terminating reverse
+  # proxy in front of gateway-1/gateway-2, least_conn load balancing.
+  # api.example.com is a placeholder - see docs/deployment.md for what a real
+  # deploy needs to change.
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - gateway-1
+      - gateway-2
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 64M
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9099:9090" # UI; every service's own /metrics already uses 909x on the host
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+  # Not exposed publicly (design-plan.md section 10): only reachable via the
+  # host's loopback / an SSH tunnel, not proxied by Caddy.
+  grafana:
+    image: grafana/grafana:11.4.0
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+
+volumes:
+  caddy-data:
+  caddy-config:
+  prometheus-data:
+  grafana-data:
