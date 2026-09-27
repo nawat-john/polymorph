@@ -97,6 +97,23 @@ describe('LiveSource', () => {
     expect(sentOps).toContainEqual({ op: 'sub', ch: 'top' })
   })
 
+  it('chunks a large subscribe into multiple messages under the gateway 4KB limit', async () => {
+    const src = new LiveSource('ws://x/ws')
+    const connected = src.connect()
+    currentWs().serverHello()
+    await connected
+
+    const ids = Array.from({ length: 90 }, (_, i) => String(i).padStart(78, '0'))
+    src.subscribe('asset', ids)
+
+    const subMsgs = currentWs().sent.map((s) => JSON.parse(s)).filter((m) => m.op === 'sub' && m.ch === 'asset')
+    expect(subMsgs.length).toBeGreaterThan(1)
+    for (const m of subMsgs) {
+      expect(JSON.stringify(m).length).toBeLessThan(4096)
+    }
+    expect(subMsgs.flatMap((m) => m.ids)).toEqual(ids)
+  })
+
   it('delivers ticks to registered handlers', async () => {
     const src = new LiveSource('ws://x/ws')
     const connected = src.connect()

@@ -36,6 +36,22 @@ const PING_INTERVAL_MS = 20_000
 
 const WS_OPEN = 1 // WebSocket.OPEN, hardcoded to avoid depending on a global constant in tests.
 
+// The gateway caps one client->server WS message at 4096 bytes
+// (cmd/gateway/ws.go maxMessageBytes) and simply drops the connection if
+// that is exceeded. Polymarket CLOB token ids are ~78-character decimal
+// strings, so a single {"op":"sub","ch":"asset","ids":[...]} message can
+// only hold roughly 45 of them before hitting that limit; subscribing to
+// the Market Wall's ~100 markets in one message silently killed the
+// connection in an infinite reconnect loop (found via Phase 4 live
+// testing). ids are therefore sent in chunks well under that count.
+const MAX_IDS_PER_MSG = 40
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
 /**
  * Real WebSocket implementation of FeedSource (design-plan.md section 7),
  * talking the protocol in internal/wsproto exactly: sends
@@ -90,7 +106,7 @@ export class LiveSource implements FeedSource {
     }
     if (ids && ids.length > 0) {
       for (const id of ids) set.add(id)
-      this.send({ op: 'sub', ch, ids })
+      for (const part of chunk(ids, MAX_IDS_PER_MSG)) this.send({ op: 'sub', ch, ids: part })
     } else {
       this.send({ op: 'sub', ch })
     }
@@ -99,10 +115,8 @@ export class LiveSource implements FeedSource {
   unsubscribe(ch: Channel, ids?: string[]): void {
     const set = this.subs.get(ch)
     if (ids && ids.length > 0) {
-      set?.forEach((id) => {
-        if (ids.includes(id)) set.delete(id)
-      })
-      this.send({ op: 'unsub', ch, ids })
+      const removed = ids.filter((id) => set?.delete(id))
+      for (const part of chunk(removed, MAX_IDS_PER_MSG)) this.send({ op: 'unsub', ch, ids: part })
     } else {
       this.subs.delete(ch)
       this.send({ op: 'unsub', ch })
@@ -181,8 +195,11 @@ export class LiveSource implements FeedSource {
 
   private resubscribeAll(): void {
     for (const [ch, ids] of this.subs) {
-      if (ids.size > 0) this.send({ op: 'sub', ch, ids: [...ids] })
-      else this.send({ op: 'sub', ch })
+      if (ids.size > 0) {
+        for (const part of chunk([...ids], MAX_IDS_PER_MSG)) this.send({ op: 'sub', ch, ids: part })
+      } else {
+        this.send({ op: 'sub', ch })
+      }
     }
   }
 
