@@ -41,15 +41,22 @@
   <ol>
     <li>The ingestor connects to Polymarket's Gamma API and CLOB WebSocket and produces raw events to <code>pm.raw</code>.</li>
     <li>The processor computes change/volatility and surge alerts, producing <code>pm.ticks</code>, <code>pm.alerts</code> and <code>pm.top</code>.</li>
-    <li>Each gateway instance broadcasts those topics to its connected WebSocket clients, batched every 100ms.</li>
+    <li>Each gateway instance broadcasts those topics to its connected WebSocket clients, batched every 50ms (<code>GW_FLUSH_MS</code>, see <code>docs/adr/003-batching-conflation-interval.md</code>).</li>
     <li>This page connects over <code>wss://</code> (or <code>ws://</code> locally) and renders the Market Wall, Surge Feed, Top Movers and System Stats panels from that stream.</li>
   </ol>
 
   <h3>Links</h3>
   <ul>
     <li><a href={GITHUB_URL} target="_blank" rel="noreferrer">Source on GitHub</a></li>
-    <li>Benchmark results: measured in Phase 6 and recorded in <code>web/public/replay/benchmark.json</code> / <code>docs/benchmark.md</code> - a dedicated results panel on this page is planned for Phase 7 (Polish).</li>
+    <li>Benchmark results (real numbers, real machine, method + caveats included): <code>docs/benchmark.md</code>, summarized for this page in <code>web/public/replay/benchmark.json</code>.</li>
+    <li>Design decisions: <code>docs/adr/</code></li>
   </ul>
+
+  <p class="disclaimer">
+    <strong>Disclaimer:</strong> OddsPulse is a personal engineering project. It is not
+    investment advice, and it is not affiliated with, endorsed by, or sponsored by
+    Polymarket.
+  </p>
 </div>
 
 <style>
@@ -67,5 +74,13 @@
     background: var(--bg-tile);
     padding: 0.1rem 0.3rem;
     border-radius: 4px;
+  }
+
+  .disclaimer {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.9rem;
   }
 </style>
