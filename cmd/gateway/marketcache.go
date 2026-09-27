@@ -44,7 +44,17 @@ func (c *marketCache) list() []model.Market {
 // handleMarkets serves the bootstrap-loaded market metadata as JSON. Not
 // part of the WS protocol (design-plan.md section 6) - see marketCache's
 // doc comment.
+//
+// CORS: unlike /ws (which checks Origin via AllowedOrigins during the WS
+// handshake), this is a plain GET of public, read-only market metadata -
+// same content for every caller, nothing per-client or sensitive - so it is
+// served with Access-Control-Allow-Origin: * rather than threading
+// GW_ALLOWED_ORIGINS through here too. Found missing during Phase 4 live
+// testing: the frontend dev server (localhost:5173) is a different origin
+// than the gateway (localhost:8081), and without this header the browser's
+// fetch("/markets") silently failed CORS with no response body.
 func (gw *gatewayServer) handleMarkets(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	_ = json.NewEncoder(w).Encode(gw.markets.list())
 }
