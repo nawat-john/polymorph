@@ -1,0 +1,45 @@
+name: oddspulse
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v26.2.3
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      # Design plan section 16: cap memory so Redpanda cannot OOM the VPS.
+      - --memory=1G
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      # "internal" is for containers on the compose network, "external" for the host.
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-shot job: creates all topics from design plan section 5, then exits.
+  redpanda-init:
+    image: redpandadata/redpanda:v26.2.3
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/init-topics.sh"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    volumes:
+      - ./redpanda/init-topics.sh:/init-topics.sh:ro
+    restart: "no"
+
+volumes:
+  redpanda-data:
