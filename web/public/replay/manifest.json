@@ -1,0 +1,7 @@
+{
+  "recorded_at": "2026-09-27T08:27:03.583Z",
+  "duration_s": 1000,
+  "files": ["replay-2026-09-27-08.ndjson.gz"],
+  "markets": "markets.json",
+  "benchmark": "benchmark.json"
+}
