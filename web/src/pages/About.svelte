@@ -48,7 +48,7 @@
   <h3>Links</h3>
   <ul>
     <li><a href={GITHUB_URL} target="_blank" rel="noreferrer">Source on GitHub</a></li>
-    <li>Benchmark results: not yet published (Phase 6 of the project plan) - <code>web/public/replay/benchmark.json</code> will carry them once measured.</li>
+    <li>Benchmark results: measured in Phase 6 and recorded in <code>web/public/replay/benchmark.json</code> / <code>docs/benchmark.md</code> - a dedicated results panel on this page is planned for Phase 7 (Polish).</li>
   </ul>
 </div>
 

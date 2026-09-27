@@ -21,6 +21,12 @@ Thumbs.db
 # Runtime output (recorder, replay exports, local captures)
 /data/
 
+# Phase 6 load-test scratch output (raw metric/docker-stats scrapes) -
+# reproducible via the commands in loadtest/scenarios.md; the summarized
+# tables live in docs/benchmark.md instead. loadtest/profiles/ (a few
+# representative pprof snapshots) is intentionally NOT ignored.
+/loadtest/results/
+
 # Secrets
 .env
 .env.*

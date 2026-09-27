@@ -1,3 +1,71 @@
 {
-  "note": "No load test has been run yet - see design-plan.md Phase 6 (Load Test & Tuning). This file is a placeholder; System Stats shows live/replay numbers instead of anything from here until it is populated with real results."
+  "note": "Real measurements from design-plan.md Phase 6 (load test & tuning), run on a single Windows development laptop - NOT the design plan's 2 vCPU/4GB VPS target. See docs/benchmark.md in the repo for full methodology, tables, and honest gaps vs. the design targets. Numbers here are recorded, not live.",
+  "measured_at": "2026-09-27",
+  "machine": {
+    "cpu": "AMD Ryzen 7 7435HS, 8 cores / 16 threads, 3.1 GHz base",
+    "ram": "~23.8 GiB",
+    "os": "Windows 11 Home Single Language",
+    "docker": "Docker Desktop, engine 29.6.1, WSL2 backend, 16 CPUs / ~11.6 GiB allotted",
+    "note": "Not the 2 vCPU/4GB VPS the design plan's targets assume - see docs/benchmark.md for what would likely differ on that hardware."
+  },
+  "targets": {
+    "ingest_events_per_s": { "target": 50000, "measured": 50000, "met": true, "note": "sustained with flat latency; unbounded queueing observed by 60,000 events/s" },
+    "concurrent_ws_clients_per_gateway": { "target": 10000, "measured": 26116, "met": true, "note": "established before handshakes started timing out; 20,000 sustained cleanly at 100% established" },
+    "e2e_latency_p50_ms": { "target": 20, "measured_range": [7, 176], "met": "partially", "note": "met at light load, grows with client/rate scale" },
+    "e2e_latency_p99_ms": { "target": 100, "measured_range": [66, 6283], "met": false, "note": "not met at any tested client count >= 10,000" },
+    "memory_per_connection_kb": { "target": 30, "measured_range": [9, 34], "met": "partially", "note": "~10KB at 10,000 clients, ~25-34KB at 20,000" },
+    "recovery_after_ws_drop_s": { "target": 5, "measured": 2, "met": true, "note": "reconnect + resumed event flow, measured from container restart; see gaps for an auto-restart caveat" }
+  },
+  "s1_ingest_ceiling": {
+    "description": "Single processor instance, synthetic loadgen-producer load, real Polymarket traffic also flowing throughout.",
+    "rows": [
+      { "rate_eps": 10000, "processor_cpu_pct": [55, 55, 55], "mean_e2e_latency_ms": [7.4, 7.8, 7.4], "stable": true },
+      { "rate_eps": 25000, "processor_cpu_pct": [75, 80, 84], "mean_e2e_latency_ms": [9.6, 9.0, 9.8, 8.9], "stable": true },
+      { "rate_eps": 50000, "processor_cpu_pct": [109, 111, 114], "mean_e2e_latency_ms": [54.7, 55.3, 60.7, 61.4], "stable": true },
+      { "rate_eps": 60000, "processor_cpu_pct": [166, 170, 168], "mean_e2e_latency_ms": [209.7, 598.0, 1429.2, 2571.5], "stable": false },
+      { "rate_eps": 75000, "processor_cpu_pct": [163, 174, 164], "mean_e2e_latency_ms": [146.4, 530.3, 1503.2, 3201.5], "stable": false }
+    ],
+    "real_ceiling_eps": 50000
+  },
+  "s2_fanout_ceiling": {
+    "description": "In-network client (container-to-container, bypassing this Windows machine's host port-forwarding, which was a lower, separate bottleneck at just 1,000-5,000 connections - see docs/benchmark.md).",
+    "rows": [
+      { "clients": 10000, "established_pct": 100, "p50_ms": 82, "p99_ms": 384, "throughput_msgs_s": 14400, "mem_per_conn_kb": 10 },
+      { "clients": 20000, "established_pct": 100, "p50_ms": 176, "p99_ms": 1259, "throughput_msgs_s": 32003, "mem_per_conn_kb": 30 },
+      { "clients": 30000, "established_pct": 87.1, "p50_ms": 269, "p99_ms": 6283, "throughput_msgs_s": 32879, "mem_per_conn_kb": null }
+    ]
+  },
+  "s5_chaos_recovery": {
+    "description": "docker kill -SIGKILL, recovery measured from manual restart (docker-compose's restart:unless-stopped did not auto-fire on this Docker Desktop/Windows setup - see docs/benchmark.md).",
+    "processor_kill": { "backlog_records": 500968, "drain_time_s": 7, "data_loss": "none" },
+    "gateway_kill": { "other_instance_unaffected": true, "p50_ms": 54, "p99_ms": 109 },
+    "ingestor_kill": { "reconnect_time_s": 2 }
+  },
+  "s6_horizontal_scale": {
+    "description": "Same 20,000 total clients, one gateway instance vs. split across two.",
+    "one_instance": { "clients": 20000, "p50_ms": 176, "p99_ms": 1259, "throughput_msgs_s": 32003 },
+    "two_instances": { "clients_per_instance": 10000, "p50_ms": [94, 81], "p99_ms": [641, 644], "throughput_msgs_s_total": 34905 }
+  },
+  "optimizations": {
+    "pre_encoding_vs_naive_remarshal": { "pre_encoded_cpu_pct": [18, 22], "naive_cpu_pct": [44, 48], "cpu_multiplier": "~2-2.5x" },
+    "flush_interval_ms": [
+      { "ms": 0, "note": "floored to 1ms (0 crashes without a guard, fixed this phase)", "throughput_msgs_s": 52384, "p50_ms": 2016, "p99_ms": 3726 },
+      { "ms": 50, "throughput_msgs_s": 3761, "p50_ms": 37, "p99_ms": 66 },
+      { "ms": 100, "throughput_msgs_s": 3632, "p50_ms": 58, "p99_ms": 118 },
+      { "ms": 250, "throughput_msgs_s": 3068, "p50_ms": 101, "p99_ms": 267 }
+    ],
+    "gogc_gomemlimit": { "default_peak_mem_mib": 168, "tuned_peak_mem_mib": 132, "tuned_config": "GOGC=50 GOMEMLIMIT=256MiB", "memory_reduction_pct": 21 },
+    "json_vs_binary": "skipped - explicitly optional per design-plan.md section 5"
+  },
+  "pprof_headline_findings": [
+    "Idle heap: ~68% of sampled heap traced to retained Kafka fetch/decompress buffers, pinned alive by the gateway's tick cache storing kgo Record byte slices without copying them (internal/hub/cache.go). Fix recommended, not applied this phase.",
+    "CPU under 20,000-client load: 60% of CPU time is raw write(2) syscalls fanning out to individual client sockets, not JSON encoding or locking - confirms the pre-encoding/conflation design is working as intended."
+  ],
+  "known_gaps": [
+    "processor_consume_lag metric under-reports real lag under overload (overwrites instead of accumulating per-partition)",
+    "gateway_slow_client_evictions_total does not increment for every slow-client disconnect path",
+    "restart: unless-stopped did not auto-restart killed containers on this Docker Desktop/Windows setup - needs re-verification on the real target VPS",
+    "S3 (hot market) and naive-remarshal comparisons were only run at moderate scale, not re-validated at 20,000+ clients",
+    "JSON vs. binary encoding comparison skipped (optional stretch item)"
+  ]
 }
