@@ -67,6 +67,11 @@ func (gw *gatewayServer) loadSnapshots(ctx context.Context, brokers []string) er
 	return err
 }
 
+// loadMarkets catches up on pm.markets like loadSnapshots, then keeps
+// consuming it on the same client for the gateway's lifetime (gw.appCtx).
+// Bootstrap alone raced the ingestor's first market discovery on a fresh
+// stack: gateway and ingestor start together, so the catch-up usually saw an
+// empty topic and the Market Wall stayed empty until a gateway restart.
 func (gw *gatewayServer) loadMarkets(ctx context.Context, brokers []string) error {
 	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
@@ -76,33 +81,59 @@ func (gw *gatewayServer) loadMarkets(ctx context.Context, brokers []string) erro
 	if err != nil {
 		return err
 	}
-	defer cl.Close()
 
 	n := 0
 	err = consumeUpToEnd(ctx, cl, topicMarkets, func(r *kgo.Record) {
-		if r.Value == nil {
-			return
+		if gw.applyMarket(r) {
+			n++
 		}
-		var m model.Market
-		if jerr := json.Unmarshal(r.Value, &m); jerr != nil {
-			gw.log.Warn("bootstrap: decode pm.markets record", "error", jerr)
-			return
-		}
-		gw.markets.set(m)
-		n++
 	})
 	gw.log.Info("bootstrap: pm.markets loaded", "markets", n)
-	return err
+	if err != nil {
+		cl.Close()
+		return err
+	}
+
+	go func() {
+		defer cl.Close()
+		for {
+			fetches := cl.PollFetches(gw.appCtx)
+			if gw.appCtx.Err() != nil {
+				return
+			}
+			if ferr := fetches.Err(); ferr != nil {
+				gw.log.Warn("pm.markets consume error", "error", ferr)
+			}
+			fetches.EachRecord(func(r *kgo.Record) { gw.applyMarket(r) })
+		}
+	}()
+	return nil
+}
+
+// applyMarket decodes one pm.markets record into gw.markets, reporting
+// whether it stored anything (tombstones and bad records are skipped).
+func (gw *gatewayServer) applyMarket(r *kgo.Record) bool {
+	if r.Value == nil {
+		return false
+	}
+	var m model.Market
+	if err := json.Unmarshal(r.Value, &m); err != nil {
+		gw.log.Warn("decode pm.markets record", "error", err)
+		return false
+	}
+	gw.markets.set(m)
+	return true
 }
 
 // consumeUpToEnd polls cl (already subscribed to topic via ConsumeTopics)
 // and calls onRecord for every fetched record, stopping once every
 // partition has been consumed up to the high watermark recorded at the
 // start of the call (a partition with no records at all is skipped
-// immediately). cl must not be shared with any other goroutine.
+// immediately). cl must not be shared with any other goroutine. cl stays
+// open afterwards (the caller owns it), so no adm.Close() here: that would
+// close cl too.
 func consumeUpToEnd(ctx context.Context, cl *kgo.Client, topic string, onRecord func(*kgo.Record)) error {
 	adm := kadm.NewClient(cl)
-	defer adm.Close()
 
 	ends, err := adm.ListEndOffsets(ctx, topic)
 	if err != nil {

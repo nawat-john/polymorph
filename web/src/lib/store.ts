@@ -11,6 +11,7 @@ import { WS_URL } from './config'
 import { fetchMarkets } from './api'
 
 const LIVE_CONNECT_TIMEOUT_MS = 3000
+const MARKETS_RETRY_MS = 3000
 
 export type Mode = 'live' | 'replay'
 export const mode = writable<Mode>('live')
@@ -86,10 +87,7 @@ export const assetByID = derived(markets, ($markets) => {
 // sys are 3 more subscriptions, so leave headroom.
 const MAX_ASSET_SUBS = 490
 
-function subscribeChannels(src: FeedSource, mkts: Market[]): void {
-  src.subscribe('sys')
-  src.subscribe('top')
-  src.subscribe('alerts')
+function subscribeAssets(src: FeedSource, mkts: Market[]): void {
   const assetIDs = mkts.flatMap((m) => m.clob_token_ids).slice(0, MAX_ASSET_SUBS)
   if (assetIDs.length > 0) src.subscribe('asset', assetIDs)
 }
@@ -138,9 +136,19 @@ async function goLive(live: LiveSource): Promise<void> {
   active = live
   mode.set('live')
   replayRecordedAt.set(null)
-  const mkts = await fetchMarkets().catch(() => [] as Market[])
+  live.subscribe('sys')
+  live.subscribe('top')
+  live.subscribe('alerts')
+  let mkts = await fetchMarkets().catch(() => [] as Market[])
+  // On a fresh stack the gateway can be up before the ingestor has
+  // discovered any markets; keep polling until metadata shows up.
+  while (mkts.length === 0 && active === live) {
+    await new Promise((r) => setTimeout(r, MARKETS_RETRY_MS))
+    mkts = await fetchMarkets().catch(() => [] as Market[])
+  }
+  if (active !== live) return
   markets.set(mkts)
-  subscribeChannels(live, mkts)
+  subscribeAssets(live, mkts)
 }
 
 async function goReplay(): Promise<void> {

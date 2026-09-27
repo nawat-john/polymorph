@@ -38,16 +38,6 @@ generates a configurable synthetic feed and `cmd/loadgen-clients` opens many
 WS connections to benchmark the gateway - see `loadtest/scenarios.md` for
 exact invocations.
 
-> **Known gap, found live while preparing this README:** the two gateway
-> instances load `pm.markets` metadata once at their own startup
-> (`cmd/gateway/bootstrap.go`), racing the ingestor's own first market-
-> discovery fetch. If the gateways finish their (empty) bootstrap before the
-> ingestor produces its first `pm.markets` batch, the Market Wall stays on
-> "Waiting for market metadata..." until the gateways are restarted. Worth
-> knowing if you bring the stack up and the wall looks empty - `docker
-> compose -f deploy/docker-compose.yml restart gateway-1 gateway-2` after the
-> ingestor's first refresh fixes it. See "What I'd do next" below.
-
 ## Architecture
 
 ```mermaid
@@ -114,8 +104,8 @@ fetch buffers alive (fixed this phase, see below).
 
 ## This phase's bug fixes
 
-Three real bugs Phase 6's profiling/load-testing surfaced, fixed and tested
-this phase:
+Three real bugs Phase 6's profiling/load-testing surfaced, plus one found
+bringing the stack up for this README, all fixed this phase:
 
 1. **`internal/hub/cache.go`'s tick cache retained whole Kafka fetch
    buffers.** `setTick` stored a `kgo.Record.Value` slice as-is; since
@@ -140,6 +130,13 @@ this phase:
    climbing past 3 seconds under overload. Replaced with a per-partition map
    persisted across polls and always reported as its full sum
    (`TestPartitionLagAccumulatesAcrossPolls`).
+4. **Empty Market Wall on a fresh `make up`** (found live while preparing
+   this README). Gateways and the ingestor start together, so the gateways'
+   one-shot `pm.markets` bootstrap usually finished before the ingestor's
+   first market discovery, and `pm.markets` was never re-read. The gateway
+   now keeps consuming `pm.markets` after bootstrap
+   (`cmd/gateway/bootstrap.go`), and the frontend retries `GET /markets`
+   until it returns something (`web/src/lib/store.ts`).
 
 ## Design decisions
 
@@ -154,12 +151,6 @@ fallback, and the `coder/websocket`/`caarlos0/env` dependency choices.
 Honest, drawn from the open items this project's own phases actually found
 (not padded):
 
-- **Gateway `pm.markets` cold-start race** (see the callout above): the
-  one-shot bootstrap read can finish before the ingestor's first market
-  discovery produces anything, and unlike `pm.snapshots`/`pm.ticks`,
-  `pm.markets` is never re-read afterward. A small fix (keep consuming
-  `pm.markets` continuously after bootstrap, the way `cmd/processor` already
-  does for the same topic) would close this.
 - **`cmd/processor/bootstrap.go` still uses the older, weaker idle-timeout
   heuristic** (`consumeUntilIdle`, 3 idle 500ms polls) that `cmd/gateway`'s
   own bootstrap moved away from after finding it unreliable on a

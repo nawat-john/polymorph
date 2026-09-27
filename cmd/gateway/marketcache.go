@@ -8,14 +8,14 @@ import (
 	"github.com/nawat-john/oddspulse/internal/model"
 )
 
-// marketCache is a small in-memory snapshot of pm.markets, loaded once at
+// marketCache is a small in-memory snapshot of pm.markets, first loaded at
 // bootstrap (design-plan.md section 4.3 / Phase 3 task list: "consuming ...
 // pm.markets from earliest at startup to build the initial cache"). It is
 // not part of the WS protocol (section 6 has no market-metadata channel);
 // it backs a small GET /markets convenience endpoint so the Phase 4
 // frontend has somewhere to fetch market question/slug/outcomes without a
-// separate service. Loaded once at startup only, not kept fresh afterwards
-// - see the "Deviations" note in the Phase 3 handback report.
+// separate service. Loaded at startup and kept fresh afterwards by
+// loadMarkets' follow-up consumer (bootstrap.go).
 type marketCache struct {
 	mu sync.RWMutex
 	m  map[string]model.Market
