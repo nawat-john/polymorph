@@ -133,5 +133,25 @@ services:
       - "9094:9090"
     restart: unless-stopped
 
+  recorder:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: recorder
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      # Design plan sections 4.4/13.
+      KAFKA_BROKERS: redpanda:9092
+      REPLAY_DIR: /data/replay
+      METRICS_ADDR: ":9090"
+    volumes:
+      - ../data/replay:/data/replay
+    ports:
+      - "9095:9090" # /metrics; scraped by Prometheus once it lands in Phase 5
+    restart: unless-stopped
+
 volumes:
   redpanda-data:

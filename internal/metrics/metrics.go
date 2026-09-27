@@ -88,6 +88,20 @@ var (
 	})
 )
 
+// Recorder metrics (design-plan.md section 4.4). Not in the section 10
+// table (which predates the recorder's own metrics surface), kept minimal
+// and following the same naming convention as the other services.
+var (
+	RecorderRecordsWrittenTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "recorder_records_written_total",
+		Help: "Total number of pm.ticks/pm.alerts records written to replay files, labeled by topic.",
+	}, []string{"topic"})
+	RecorderWriteErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "recorder_write_errors_total",
+		Help: "Total number of errors writing or rotating replay files.",
+	})
+)
+
 // Handler serves the default Prometheus registry: the metrics above, plus
 // the Go runtime/process collectors client_golang registers there by
 // default (design-plan.md section 10: "system" row).
