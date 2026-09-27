@@ -107,10 +107,21 @@ func NewHub(cfg Config, metrics Metrics, log *slog.Logger) *Hub {
 	}
 }
 
+// minFlushInterval is the smallest interval Run's ticker will actually use.
+// time.NewTicker panics on a non-positive duration, so GW_FLUSH_MS=0
+// (design-plan.md section 9 lists 0ms as one of the batching intervals to
+// benchmark, i.e. "as unbatched as this design gets") is floored to this
+// instead of crashing the gateway on startup.
+const minFlushInterval = time.Millisecond
+
 // Run drives the periodic flush + slow-client-eviction loop until ctx is
 // done (design-plan.md 4.3: "flushed every 100ms").
 func (h *Hub) Run(ctx context.Context) {
-	t := time.NewTicker(h.cfg.FlushInterval)
+	interval := h.cfg.FlushInterval
+	if interval < minFlushInterval {
+		interval = minFlushInterval
+	}
+	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
