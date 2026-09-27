@@ -1,0 +1,27 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Node / frontend
+node_modules/
+web/dist/
+web/.svelte-kit/
+*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Runtime output (recorder, replay exports, local captures)
+/data/
+
+# Secrets
+.env
+.env.*
+!.env.example
