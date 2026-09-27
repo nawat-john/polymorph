@@ -32,6 +32,8 @@ func main() {
 	conns := flag.Int("conns", 100, "number of concurrent WebSocket connections")
 	subsPerConn := flag.Int("subs-per-conn", 20, "asset subscriptions per connection")
 	duration := flag.Duration("duration", 30*time.Second, "how long to run before reporting and exiting")
+	hotAsset := flag.Bool("hot-asset", false, "every connection subscribes to the same single asset instead of its own slice (design-plan.md S3: hot market)")
+	slowFrac := flag.Float64("slow-frac", 0, "fraction (0..1) of connections that stall reads entirely right after subscribing, to exercise gateway slow-client eviction (design-plan.md S4)")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("service", "loadgen-clients")
@@ -48,32 +50,43 @@ func main() {
 		log.Info("discovered assets", "count", len(assetIDs))
 	}
 
+	slowCount := int(float64(*conns) * *slowFrac)
+
 	results := make([]connResult, *conns)
 	var wg sync.WaitGroup
 	var connected atomic.Int64
 	for i := 0; i < *conns; i++ {
 		wg.Add(1)
-		go func(i int) {
+		assets := pickAssets(assetIDs, *subsPerConn, i)
+		if *hotAsset && len(assetIDs) > 0 {
+			assets = assetIDs[:1] // every connection subscribes to the same single asset
+		}
+		slow := i < slowCount
+		go func(i int, assets []string, slow bool) {
 			defer wg.Done()
-			results[i] = runConn(ctx, *wsURL, pickAssets(assetIDs, *subsPerConn, i), &connected)
-		}(i)
+			results[i] = runConn(ctx, *wsURL, assets, slow, &connected)
+		}(i, assets, slow)
 	}
 
-	log.Info("running", "conns", *conns, "subs_per_conn", *subsPerConn, "duration", *duration, "url", *wsURL)
+	log.Info("running", "conns", *conns, "subs_per_conn", *subsPerConn, "duration", *duration, "url", *wsURL, "hot_asset", *hotAsset, "slow_frac", *slowFrac)
 	wg.Wait()
 
 	report(*conns, *duration, results)
 }
 
-// connResult is what one connection measured over its lifetime.
+// connResult is what one connection measured over its lifetime. slow marks a
+// connection that deliberately stalled reads (design-plan.md S4) - excluded
+// from the "normal" latency/throughput numbers so slow clients cannot skew
+// the very numbers S4 is checking are unaffected.
 type connResult struct {
 	connected   bool
+	slow        bool
 	err         error
 	msgs        int64
 	latenciesMs []float64
 }
 
-func runConn(ctx context.Context, wsURL string, assets []string, connected *atomic.Int64) connResult {
+func runConn(ctx context.Context, wsURL string, assets []string, slow bool, connected *atomic.Int64) connResult {
 	dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
 	conn, resp, err := websocket.Dial(dialCtx, wsURL, nil)
 	dialCancel()
@@ -107,6 +120,18 @@ func runConn(ctx context.Context, wsURL string, assets []string, connected *atom
 		if err != nil {
 			return connResult{connected: true, err: err}
 		}
+	}
+
+	if slow {
+		// Deliberately never read again: pending frames pile up in the
+		// gateway's per-client outbound queue until it stays full for
+		// evictAfterMisses consecutive flush cycles, at which point the
+		// gateway evicts this connection (design-plan.md S4,
+		// gateway_slow_client_evictions_total). Blocking here rather than
+		// closing the connection is the point - a real slow/stuck client
+		// does not politely hang up either.
+		<-ctx.Done()
+		return connResult{connected: true, slow: true}
 	}
 
 	res := connResult{connected: true}
@@ -191,7 +216,7 @@ func fetchAssetIDs(wsURL string) ([]string, error) {
 }
 
 func report(attempted int, duration time.Duration, results []connResult) {
-	var connectedN, failedN int
+	var connectedN, failedN, slowN int
 	var totalMsgs int64
 	var allLatencies []float64
 	var firstErr error
@@ -204,6 +229,10 @@ func report(attempted int, duration time.Duration, results []connResult) {
 				firstErr = r.err
 			}
 		}
+		if r.slow {
+			slowN++
+			continue // deliberately stalled: never read, so it has no msgs/latency to count
+		}
 		totalMsgs += r.msgs
 		allLatencies = append(allLatencies, r.latenciesMs...)
 	}
@@ -211,16 +240,21 @@ func report(attempted int, duration time.Duration, results []connResult) {
 	sort.Float64s(allLatencies)
 	p50 := percentile(allLatencies, 0.50)
 	p99 := percentile(allLatencies, 0.99)
+	normalN := connectedN - slowN
 	msgsPerSec := float64(totalMsgs) / duration.Seconds()
 
 	fmt.Printf("\n=== loadgen-clients report ===\n")
 	fmt.Printf("connections attempted:  %d\n", attempted)
 	fmt.Printf("connections established: %d (%.1f%%)\n", connectedN, 100*float64(connectedN)/float64(attempted))
 	fmt.Printf("connections failed:     %d\n", failedN)
+	if slowN > 0 {
+		fmt.Printf("connections slow (stalled reads, excluded below): %d\n", slowN)
+	}
 	if firstErr != nil {
 		fmt.Printf("first error:            %v\n", firstErr)
 	}
 	fmt.Printf("duration:               %s\n", duration)
+	fmt.Printf("normal connections:     %d\n", normalN)
 	fmt.Printf("messages received:      %d\n", totalMsgs)
 	fmt.Printf("latency samples:        %d\n", len(allLatencies))
 	fmt.Printf("throughput:             %.1f msgs/s\n", msgsPerSec)
