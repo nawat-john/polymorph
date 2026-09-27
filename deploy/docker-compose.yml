@@ -101,7 +101,7 @@ services:
     environment:
       # Design plan sections 4.3/13.
       KAFKA_BROKERS: redpanda:9092
-      GW_FLUSH_MS: "100"
+      GW_FLUSH_MS: "50"  # ADR-003: 50ms measured better than the original 100ms default at benchmarked scale
       GW_MAX_SUBS: "500"
       GW_ALLOWED_ORIGINS: "http://localhost:5173"
       METRICS_ADDR: ":9090"
@@ -123,7 +123,7 @@ services:
         condition: service_completed_successfully
     environment:
       KAFKA_BROKERS: redpanda:9092
-      GW_FLUSH_MS: "100"
+      GW_FLUSH_MS: "50"  # ADR-003: 50ms measured better than the original 100ms default at benchmarked scale
       GW_MAX_SUBS: "500"
       GW_ALLOWED_ORIGINS: "http://localhost:5173"
       METRICS_ADDR: ":9090"

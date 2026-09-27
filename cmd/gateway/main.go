@@ -50,8 +50,10 @@ const bootstrapTimeout = 60 * time.Second
 // Config is the gateway's environment configuration (design-plan.md section
 // 13).
 type Config struct {
-	KafkaBrokers   []string `env:"KAFKA_BROKERS" envDefault:"localhost:19092" envSeparator:","`
-	FlushMS        int      `env:"GW_FLUSH_MS" envDefault:"100"`
+	KafkaBrokers []string `env:"KAFKA_BROKERS" envDefault:"localhost:19092" envSeparator:","`
+	// 50ms, not the design plan's original 100ms guess (ADR-003): measured
+	// lower CPU *and* lower latency at benchmarked scale, see docs/benchmark.md.
+	FlushMS        int      `env:"GW_FLUSH_MS" envDefault:"50"`
 	MaxSubs        int      `env:"GW_MAX_SUBS" envDefault:"500"`
 	AllowedOrigins []string `env:"GW_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:5173"`
 	MetricsAddr    string   `env:"METRICS_ADDR" envDefault:":9090"`
