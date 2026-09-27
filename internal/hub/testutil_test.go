@@ -20,12 +20,18 @@ type fakeConn struct {
 	code   atomic.Int32
 	reason atomic.Value // string
 
-	block chan struct{}
+	block    chan struct{}
+	writeErr error // if set, Write always fails with this error instead of succeeding
 }
 
 func newFakeConn() *fakeConn { return &fakeConn{} }
 
 func newBlockingConn() *fakeConn { return &fakeConn{block: make(chan struct{})} }
+
+// newFailingConn simulates a connection whose write fails immediately (e.g.
+// a timed-out or broken socket), for testing the write-error eviction path
+// (as opposed to newBlockingConn's queue-full path).
+func newFailingConn(err error) *fakeConn { return &fakeConn{writeErr: err} }
 
 func (f *fakeConn) unblock() {
 	if f.block == nil {
@@ -39,6 +45,9 @@ func (f *fakeConn) unblock() {
 }
 
 func (f *fakeConn) Write(ctx context.Context, data []byte) error {
+	if f.writeErr != nil {
+		return f.writeErr
+	}
 	if f.block != nil {
 		select {
 		case <-f.block:

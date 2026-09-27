@@ -153,9 +153,13 @@ func (c *Client) takeSubs() []ChannelKey {
 // runWriter drains c.out and writes each frame to the connection until ctx
 // is done, the connection is closed, or a write fails. onWrite is called
 // after each successful write with the frame's byte length (metrics);
-// onExit is called exactly once when the loop returns, regardless of cause.
-func (c *Client) runWriter(ctx context.Context, onWrite func(n int), onExit func()) {
-	defer onExit()
+// onExit is called exactly once when the loop returns, with the error that
+// ended it - non-nil only for a failed/timed-out write, nil for a normal
+// ctx/done exit. Hub uses that to distinguish "this connection just died
+// under backpressure" (a slow-client eviction) from an ordinary teardown.
+func (c *Client) runWriter(ctx context.Context, onWrite func(n int), onExit func(err error)) {
+	var exitErr error
+	defer func() { onExit(exitErr) }()
 	for {
 		select {
 		case <-ctx.Done():
@@ -170,6 +174,7 @@ func (c *Client) runWriter(ctx context.Context, onWrite func(n int), onExit func
 			err := c.conn.Write(wctx, frame)
 			cancel()
 			if err != nil {
+				exitErr = err
 				return
 			}
 			if onWrite != nil {

@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -203,6 +204,36 @@ func TestSlowClientEviction(t *testing.T) {
 	}
 	if h.ClientCount() != 0 {
 		t.Fatalf("ClientCount() after eviction = %d, want 0", h.ClientCount())
+	}
+}
+
+// TestWriteErrorEvictsAndCountsMetric exercises the *other* slow-client
+// disconnect path found in S4 testing (docs/benchmark.md): a write that
+// fails/times out at the connection level, as opposed to
+// TestSlowClientEviction's queue-still-full-after-N-flushes path. Both must
+// increment gateway_slow_client_evictions_total.
+func TestWriteErrorEvictsAndCountsMetric(t *testing.T) {
+	h, fm := newTestHub(time.Hour, 500) // no periodic flush needed: SendHello enqueues directly
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fc := newFailingConn(errors.New("simulated write timeout"))
+	c := h.NewClient(ctx, fc)
+	h.SendHello(c) // gives the writer goroutine a frame to fail on
+
+	deadline := time.After(time.Second)
+	for fm.evictions.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatalf("write error did not trigger an eviction / metric increment")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if got := fm.evictions.Load(); got != 1 {
+		t.Fatalf("evictions = %d, want 1", got)
+	}
+	if h.ClientCount() != 0 {
+		t.Fatalf("ClientCount() after write-error eviction = %d, want 0", h.ClientCount())
 	}
 }
 

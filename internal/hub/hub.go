@@ -205,20 +205,31 @@ func (h *Hub) NewClient(ctx context.Context, conn Conn) *Client {
 			h.metrics.AddMessagesOut(1)
 			h.metrics.AddBytesOut(frameLen)
 		}
-	}, func() {
+	}, func(err error) {
+		if err != nil {
+			// The write itself failed or timed out (writeTimeout): this is
+			// the second slow-client disconnect path alongside tickClient's
+			// queue-full check below, and must count the same metric (see
+			// docs/benchmark.md S4 / design-plan.md 4.3's
+			// gateway_slow_client_evictions_total).
+			h.evict(c, statusTryAgainLater, "slow client: write failed or timed out")
+			return
+		}
 		h.RemoveClient(c)
 	})
 	return c
 }
 
 // RemoveClient unregisters c: removes it from the subscription index and the
-// clients map. Idempotent (a client already removed is a no-op). It does not
-// close the connection - the caller (the /ws read loop, or evict) owns that.
-func (h *Hub) RemoveClient(c *Client) {
+// clients map. Idempotent (a client already removed is a no-op, reported via
+// the returned bool so evict below never double-counts a client removed by
+// both disconnect paths racing each other). It does not close the connection
+// - the caller (the /ws read loop, or evict) owns that.
+func (h *Hub) RemoveClient(c *Client) bool {
 	h.clientsMu.Lock()
 	if _, ok := h.clients[c.id]; !ok {
 		h.clientsMu.Unlock()
-		return
+		return false
 	}
 	delete(h.clients, c.id)
 	n := len(h.clients)
@@ -234,11 +245,19 @@ func (h *Hub) RemoveClient(c *Client) {
 	if h.metrics != nil {
 		h.metrics.SetClients(n)
 	}
+	return true
 }
 
+// evict is the single path both slow-client disconnect mechanisms route
+// through - tickClient's queue-still-full-after-N-flushes check, and
+// runWriter's write-failed/timed-out exit - so the eviction metric and log
+// line are never duplicated or skipped depending on which one notices first.
 func (h *Hub) evict(c *Client, code int, reason string) {
-	h.RemoveClient(c)
+	removed := h.RemoveClient(c)
 	c.closeConn(code, reason)
+	if !removed {
+		return // already removed by the other disconnect path; don't double-count
+	}
 	if h.metrics != nil {
 		h.metrics.IncSlowClientEvictions()
 	}

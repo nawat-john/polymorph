@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -122,7 +123,7 @@ func main() {
 
 	go runTopLoop(ctx, log, producer, store)
 
-	runConsumeLoop(ctx, log, consumer, producer, store)
+	runConsumeLoop(ctx, log, consumer, producer, store, newPartitionLag())
 
 	log.Info("shutting down")
 }
@@ -130,7 +131,7 @@ func main() {
 // runConsumeLoop polls pm.raw, feeds each record through store, produces the
 // derived records, and commits pm.raw offsets only after those produces are
 // durably acked (design-plan.md 4.2's at-least-once note).
-func runConsumeLoop(ctx context.Context, log *slog.Logger, consumer, producer *kgo.Client, store *stateStore) {
+func runConsumeLoop(ctx context.Context, log *slog.Logger, consumer, producer *kgo.Client, store *stateStore, lag *partitionLag) {
 	for {
 		fetches := consumer.PollFetches(ctx)
 		if ctx.Err() != nil {
@@ -143,7 +144,7 @@ func runConsumeLoop(ctx context.Context, log *slog.Logger, consumer, producer *k
 			continue
 		}
 
-		reportLag(fetches)
+		lag.update(fetches)
 
 		var produceErr error
 		fetches.EachRecord(func(r *kgo.Record) {
@@ -206,25 +207,43 @@ func produceJSON(ctx context.Context, producer *kgo.Client, topic, key string, v
 	})
 }
 
-// reportLag sets processor_consume_lag from the high watermarks in this
-// poll's fetches.
-//
-// ponytail: this only reflects the partitions that had records this round
-// (an instantaneous, partial view), not a tracked sum across every assigned
-// partition. Good enough to see "lag climbing" vs "near zero" on a
-// dashboard; a precise per-partition lag gauge would need bookkeeping across
-// polls (and partitions that go quiet keep reporting their last value,
-// unlike a from-scratch computation).
-func reportLag(fetches kgo.Fetches) {
-	var lag int64
-	fetches.EachPartition(func(p kgo.FetchTopicPartition) {
-		if len(p.Records) == 0 {
+// partitionLag tracks processor_consume_lag (design-plan.md 4.2) as a
+// persistent per-partition map rather than recomputing it from scratch on
+// every poll. The previous version (see docs/benchmark.md's S1 finding)
+// summed only the partitions that happened to have records in *that one*
+// PollFetches batch and then Set() the gauge to that partial sum - so a
+// batch touching 2 of 12 partitions silently reported lag as if the other
+// 10 had none, and the gauge read misleadingly close to 0 even while real
+// lag was climbing into the thousands. Tracking each partition's last-known
+// lag here and always reporting the sum across all of them fixes that.
+type partitionLag struct {
+	mu  sync.Mutex
+	lag map[int32]int64
+}
+
+func newPartitionLag() *partitionLag {
+	return &partitionLag{lag: make(map[int32]int64)}
+}
+
+// update records this poll's lag for every partition that had records this
+// round (partitions with nothing new this round keep their last known
+// value - they are not assumed caught up), then republishes the gauge as
+// the sum across every partition ever seen.
+func (p *partitionLag) update(fetches kgo.Fetches) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	fetches.EachPartition(func(part kgo.FetchTopicPartition) {
+		if len(part.Records) == 0 {
 			return
 		}
-		last := p.Records[len(p.Records)-1]
-		lag += p.HighWatermark - (last.Offset + 1)
+		last := part.Records[len(part.Records)-1]
+		p.lag[part.Partition] = part.HighWatermark - (last.Offset + 1)
 	})
-	metrics.ProcessorConsumeLag.Set(float64(lag))
+	var total int64
+	for _, l := range p.lag {
+		total += l
+	}
+	metrics.ProcessorConsumeLag.Set(float64(total))
 }
 
 // runTopLoop recomputes and produces pm.top roughly every topInterval

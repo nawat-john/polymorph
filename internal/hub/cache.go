@@ -17,8 +17,16 @@ func newCache() *cache {
 }
 
 func (c *cache) setTick(assetID string, raw []byte) {
+	// Copy raw rather than retaining the caller's slice: both call sites
+	// (SeedCache, PublishTick) pass a kgo.Record.Value straight from a Kafka
+	// fetch, whose backing array is often shared by every record decompressed
+	// from the same batch. Caching that slice directly kept the *entire*
+	// fetch buffer alive for as long as this asset's entry sat in the cache,
+	// even after every sibling record in the batch was otherwise garbage.
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
 	c.mu.Lock()
-	c.tick[assetID] = raw
+	c.tick[assetID] = cp
 	c.mu.Unlock()
 }
 
