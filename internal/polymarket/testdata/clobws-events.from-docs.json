@@ -1,0 +1,39 @@
+{
+  "_note": "Built strictly from the documented examples at https://docs.polymarket.com/market-data/websocket/market-channel (consulted 2026-09-27). These event types were NOT observed in the live capture (clobws-market.sample.ndjson) during a ~20s window against real markets, either because they require custom_feature_enabled or because the sampled markets did not produce them in that window. Do not treat these as verified wire samples.",
+  "tick_size_change": {
+    "event_type": "tick_size_change",
+    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+    "old_tick_size": "0.01",
+    "new_tick_size": "0.001",
+    "timestamp": "1782753357257"
+  },
+  "best_bid_ask_requires_custom_feature_enabled": {
+    "event_type": "best_bid_ask",
+    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+    "asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+    "best_bid": "0.08",
+    "best_ask": "0.09",
+    "spread": "0.01",
+    "timestamp": "1782753357257"
+  },
+  "new_market_requires_custom_feature_enabled": {
+    "event_type": "new_market",
+    "id": "123456",
+    "question": "Will the US confirm that aliens exist before 2027?",
+    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+    "slug": "will-the-us-confirm-that-aliens-exist-before-2027",
+    "assets_ids": ["107505882767731489358349912513945399560393482969656700824895970500493757150417"],
+    "outcomes": ["Yes", "No"],
+    "timestamp": "1782753357257"
+  },
+  "market_resolved_requires_custom_feature_enabled": {
+    "event_type": "market_resolved",
+    "id": "123456",
+    "market": "0x747dc809fb79e1b05be09c42d6179459a58de2ef3e40f02484a4e1260f741f75",
+    "assets_ids": ["107505882767731489358349912513945399560393482969656700824895970500493757150417"],
+    "winning_asset_id": "107505882767731489358349912513945399560393482969656700824895970500493757150417",
+    "winning_outcome": "Yes",
+    "timestamp": "1782753357257"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "ws_url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+  "captured_at": "2026-09-27T06:38:55.868Z",
+  "event_types": {
+    "book": 26,
+    "price_change": 29,
+    "last_trade_price": 10
+  },
+  "pong_seen": true,
+  "frames_saved": 60
+}
