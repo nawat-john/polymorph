@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { createChart, LineSeries, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts'
-  import { ticks, source } from '../lib/store'
+  import { ticks, subscribeAsset, unsubscribeAsset } from '../lib/store'
   import { pct, pp } from '../lib/format'
   import type { Market } from '../feed/types'
 
@@ -43,8 +43,8 @@
   })
 
   onMount(() => {
-    source.subscribe('asset', market.clob_token_ids)
-    return () => source.unsubscribe('asset', market.clob_token_ids)
+    subscribeAsset(market.clob_token_ids)
+    return () => unsubscribeAsset(market.clob_token_ids)
   })
 
   $: if (series && asset) {
