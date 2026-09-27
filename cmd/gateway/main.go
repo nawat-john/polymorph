@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,9 @@ type Config struct {
 	AllowedOrigins []string `env:"GW_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:5173"`
 	MetricsAddr    string   `env:"METRICS_ADDR" envDefault:":9090"`
 	Addr           string   `env:"GW_ADDR" envDefault:":8080"`
+	// NaiveRemarshal: measurement harness only (see hub.Config.NaiveRemarshal),
+	// for design-plan.md section 9's pre-encoding before/after comparison.
+	NaiveRemarshal bool `env:"GW_NAIVE_REMARSHAL" envDefault:"false"`
 }
 
 // gatewayServer holds everything the HTTP handlers (ws.go) and the
@@ -86,11 +90,21 @@ func main() {
 	ctx, stop := shutdown.NewContext()
 	defer stop()
 
-	// Metrics-only server, matching ingestor/processor's convention.
+	// Metrics-only server, matching ingestor/processor's convention. Also
+	// registers net/http/pprof (design-plan.md Phase 6): this port is never
+	// exposed publicly (only via docker-compose's host port mapping, same as
+	// /metrics today), so it is left on unconditionally rather than gated
+	// behind a flag - there is no public-facing deployment of this endpoint
+	// yet to worry about.
 	go func() {
 		log.Info("metrics listening", "addr", cfg.MetricsAddr)
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", metrics.Handler())
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 		srv := &http.Server{Addr: cfg.MetricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("metrics server", "error", err)
@@ -98,9 +112,10 @@ func main() {
 	}()
 
 	h := hub.NewHub(hub.Config{
-		FlushInterval: time.Duration(cfg.FlushMS) * time.Millisecond,
-		MaxSubs:       cfg.MaxSubs,
-		ServerName:    serverName(),
+		FlushInterval:  time.Duration(cfg.FlushMS) * time.Millisecond,
+		MaxSubs:        cfg.MaxSubs,
+		ServerName:     serverName(),
+		NaiveRemarshal: cfg.NaiveRemarshal,
 	}, metrics.GatewayAdapter{}, log)
 
 	gw := &gatewayServer{

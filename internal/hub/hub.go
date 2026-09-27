@@ -11,6 +11,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -61,6 +62,16 @@ type Config struct {
 	FlushInterval time.Duration // GW_FLUSH_MS
 	MaxSubs       int           // GW_MAX_SUBS
 	ServerName    string        // sent in the "hello" message
+
+	// NaiveRemarshal (GW_NAIVE_REMARSHAL): measurement harness only, for
+	// design-plan.md section 9's "encode once and share bytes vs. encode per
+	// client" before/after comparison. When true, PublishTick decodes+
+	// re-encodes the tick JSON once per subscribed client instead of sharing
+	// the single pre-encoded byte slice - reproducing the CPU cost a
+	// per-client-encode design would pay, so it can be measured against the
+	// real (default false) pre-encoding path. Never set true outside a
+	// benchmark run.
+	NaiveRemarshal bool
 }
 
 // Hub is the gateway's fan-out engine. Zero value is not usable; use NewHub.
@@ -335,9 +346,32 @@ func (h *Hub) Unsubscribe(c *Client, ch string, ids []string) {
 // subscribers.
 func (h *Hub) PublishTick(assetID string, raw []byte) {
 	h.cache.setTick(assetID, raw)
-	for _, c := range h.idx.snapshot(ChannelKey{Ch: wsproto.ChAsset, ID: assetID}) {
+	clients := h.idx.snapshot(ChannelKey{Ch: wsproto.ChAsset, ID: assetID})
+	if h.cfg.NaiveRemarshal {
+		for _, c := range clients {
+			c.conflateTick(assetID, naiveReencode(raw))
+		}
+		return
+	}
+	for _, c := range clients {
 		c.conflateTick(assetID, raw)
 	}
+}
+
+// naiveReencode decodes+re-encodes raw, standing in for the CPU cost of a
+// per-client JSON encode (see Config.NaiveRemarshal's doc comment). Falls
+// back to raw on a decode error, which should not happen for anything that
+// round-tripped through json.Marshal to begin with.
+func naiveReencode(raw []byte) []byte {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return raw
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 // PublishAlert fans out one pre-encoded Alert (raw is the exact bytes read
