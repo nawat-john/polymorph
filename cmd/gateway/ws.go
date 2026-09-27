@@ -42,7 +42,16 @@ func (gw *gatewayServer) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(maxMessageBytes)
 
-	connCtx, cancel := context.WithCancel(gw.appCtx)
+	// Deliberately NOT derived from gw.appCtx: on shutdown, main sends every
+	// client a proper close frame via hub.CloseAll (design-plan.md 4.3's
+	// code 1012), and Read below returns once that close handshake reaches
+	// this connection. If connCtx were canceled by appCtx directly instead,
+	// it would race that graceful close - the read loop erroring out from
+	// ctx cancellation and CloseNow (an abrupt, handshake-less close, see
+	// its defer below) would very likely win, and clients would see a bare
+	// EOF instead of the 1012 close frame (caught by manual testing against
+	// the live stack; see the Phase 3 handback report).
+	connCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer func() { _ = conn.CloseNow() }()
 

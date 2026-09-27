@@ -129,7 +129,13 @@ func runConn(ctx context.Context, wsURL string, assets []string, connected *atom
 		now := time.Now().UnixMilli()
 		for _, t := range ticks {
 			res.msgs++
-			if t.RecvTS > 0 {
+			// Only "ticks" (a fresh live push) measures pipeline e2e latency.
+			// "snap" replays whatever price was last cached for that asset,
+			// which can be arbitrarily old (design-plan.md section 4.3's
+			// snapshot-on-subscribe) - including it here would conflate
+			// "how stale is this asset's last update" with "how fast does
+			// the pipeline deliver a fresh event", so it is excluded.
+			if m.T == wsproto.TypeTicks && t.RecvTS > 0 {
 				if lat := float64(now - t.RecvTS); lat >= 0 {
 					res.latenciesMs = append(res.latenciesMs, lat)
 				}

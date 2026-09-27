@@ -83,5 +83,55 @@ services:
       - "9092:9090" # /metrics; scraped by Prometheus once it lands in Phase 5
     restart: unless-stopped
 
+  # Two named instances rather than `deploy.replicas: 2`, so each has a
+  # stable hostname on the compose network - design plan section 13's example
+  # Caddyfile already reverse-proxies to "gateway-1:8080 gateway-2:8080" by
+  # name (Phase 5 will wire that up). Each gets its own unique Kafka consumer
+  # group at runtime (design-plan.md 4.3's "broadcast" pattern), so both see
+  # every partition of pm.ticks/pm.alerts/pm.top independently.
+  gateway-1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      # Design plan sections 4.3/13.
+      KAFKA_BROKERS: redpanda:9092
+      GW_FLUSH_MS: "100"
+      GW_MAX_SUBS: "500"
+      GW_ALLOWED_ORIGINS: "http://localhost:5173"
+      METRICS_ADDR: ":9090"
+      GW_ADDR: ":8080"
+    ports:
+      - "8081:8080" # /ws, /healthz, /readyz, /markets - exposed to the host
+      # for local testing now and for Caddy (Phase 5) later.
+      - "9093:9090" # /metrics; scraped by Prometheus once it lands in Phase 5
+    restart: unless-stopped
+
+  gateway-2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      GW_FLUSH_MS: "100"
+      GW_MAX_SUBS: "500"
+      GW_ALLOWED_ORIGINS: "http://localhost:5173"
+      METRICS_ADDR: ":9090"
+      GW_ADDR: ":8080"
+    ports:
+      - "8082:8080"
+      - "9094:9090"
+    restart: unless-stopped
+
 volumes:
   redpanda-data:

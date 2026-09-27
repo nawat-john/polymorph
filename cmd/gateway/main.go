@@ -41,6 +41,11 @@ const latencySampleCapacity = 4096
 // on graceful shutdown (design-plan.md 4.3) so they reconnect elsewhere.
 const closeCodeServiceRestart = 1012
 
+// bootstrapTimeout is a defensive upper bound on the whole bootstrap step
+// (pm.snapshots + pm.markets, bootstrap.go). Normally this completes in
+// well under a second per topic.
+const bootstrapTimeout = 60 * time.Second
+
 // Config is the gateway's environment configuration (design-plan.md section
 // 13).
 type Config struct {
@@ -107,7 +112,14 @@ func main() {
 		latency: newLatencySketch(latencySampleCapacity),
 	}
 
-	if err := gw.bootstrap(ctx, cfg.KafkaBrokers); err != nil {
+	// Bounded even though consumeUpToEnd (bootstrap.go) targets a fixed
+	// offset snapshot rather than an open-ended idle heuristic: a defensive
+	// upper bound in case Kafka is unreachable or a topic is unexpectedly
+	// huge.
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(ctx, bootstrapTimeout)
+	err = gw.bootstrap(bootstrapCtx, cfg.KafkaBrokers)
+	bootstrapCancel()
+	if err != nil {
 		log.Error("bootstrap", "error", err)
 		os.Exit(1)
 	}
