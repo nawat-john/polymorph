@@ -59,7 +59,7 @@ func (s *fakeServer) handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	ctx := r.Context()
 
 	_, data, err := conn.Read(ctx)

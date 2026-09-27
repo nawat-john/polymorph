@@ -212,11 +212,14 @@ func jitter(d time.Duration) time.Duration {
 // runShardOnce runs a single connection attempt to completion, returning how
 // long it stayed connected before the returned error ended it.
 func (m *Manager) runShardOnce(ctx context.Context, id int, assets []string) (time.Duration, error) {
-	conn, _, err := websocket.Dial(ctx, m.cfg.URL, nil)
+	conn, resp, err := websocket.Dial(ctx, m.cfg.URL, nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		return 0, err
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 
 	sub := subscribeMessage{AssetsIDs: assets, Type: "market"}
 	payload, err := json.Marshal(sub)

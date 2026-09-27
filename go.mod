@@ -3,6 +3,7 @@ module github.com/nawat-john/oddspulse
 go 1.27.0
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1
 	github.com/coder/websocket v1.8.15
 	github.com/prometheus/client_golang v1.24.1
 	github.com/twmb/franz-go v1.22.0
