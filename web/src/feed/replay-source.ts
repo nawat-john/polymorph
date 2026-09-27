@@ -123,8 +123,18 @@ export class ReplaySource implements FeedSource {
   private async loadFile(url: string): Promise<ReplayEvent[]> {
     const res = await fetch(url)
     if (!res.ok || !res.body) throw new Error(`GET ${url}: ${res.status}`)
-    const decompressed = res.body.pipeThrough(new DecompressionStream('gzip'))
-    const text = await new Response(decompressed).text()
+    // Some static file servers (vite's dev/preview server among them, via
+    // sirv's "pre-gzipped asset" convention for .gz files) tag a .gz
+    // response with a real Content-Encoding: gzip header, which makes the
+    // browser's fetch() transparently decompress the body - res.body is
+    // then already plain text, and re-running DecompressionStream on it
+    // fails (found via real Chrome testing against `npm run dev`; GitHub
+    // Pages itself does not do this, so production still hits the
+    // DecompressionStream path below).
+    const alreadyDecoded = res.headers.get('content-encoding')?.includes('gzip') ?? false
+    const text = alreadyDecoded
+      ? await res.text()
+      : await new Response(res.body.pipeThrough(new DecompressionStream('gzip'))).text()
 
     const out: ReplayEvent[] = []
     for (const line of text.split('\n')) {
