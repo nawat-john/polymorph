@@ -22,13 +22,17 @@ func NewProducer(brokers []string) (*kgo.Client, error) {
 }
 
 // NewConsumer returns a franz-go client consuming topics as consumer group
-// groupID, for reuse by the processor/gateway/recorder in later phases.
-func NewConsumer(brokers []string, groupID string, topics ...string) (*kgo.Client, error) {
-	return kgo.NewClient(
+// groupID, for reuse by the processor/gateway/recorder. extra opts are
+// appended last so callers can override defaults (e.g. the processor
+// disables auto-commit for its at-least-once produce-then-commit loop, see
+// design-plan.md section 4.2).
+func NewConsumer(brokers []string, groupID string, topics []string, opts ...kgo.Opt) (*kgo.Client, error) {
+	base := []kgo.Opt{
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(groupID),
 		kgo.ConsumeTopics(topics...),
-	)
+	}
+	return kgo.NewClient(append(base, opts...)...)
 }
 
 // Produce produces one record without blocking the caller; onDone (optional)

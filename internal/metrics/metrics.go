@@ -34,6 +34,27 @@ var (
 	})
 )
 
+// Processor metrics, per the design-plan.md section 10 table.
+var (
+	ProcessorConsumeLag = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "processor_consume_lag",
+		Help: "Approximate consumer lag (records) on pm.raw for the processor consumer group.",
+	})
+	ProcessorEventsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "processor_events_total",
+		Help: "Total number of pm.raw events processed.",
+	})
+	ProcessorAlertsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "processor_alerts_total",
+		Help: "Total number of surge alerts produced to pm.alerts.",
+	})
+	ProcessorHandleSeconds = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "processor_handle_seconds",
+		Help:    "Time to handle one pm.raw event: state update plus derived produces.",
+		Buckets: prometheus.DefBuckets,
+	})
+)
+
 // Handler serves the default Prometheus registry: the metrics above, plus
 // the Go runtime/process collectors client_golang registers there by
 // default (design-plan.md section 10: "system" row).
