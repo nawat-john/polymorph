@@ -123,15 +123,7 @@ func runConn(ctx context.Context, wsURL string, assets []string, slow bool, conn
 	}
 
 	if slow {
-		// Deliberately never read again: pending frames pile up in the
-		// gateway's per-client outbound queue until it stays full for
-		// evictAfterMisses consecutive flush cycles, at which point the
-		// gateway evicts this connection (design-plan.md S4,
-		// gateway_slow_client_evictions_total). Blocking here rather than
-		// closing the connection is the point - a real slow/stuck client
-		// does not politely hang up either.
-		<-ctx.Done()
-		return connResult{connected: true, slow: true}
+		return runSlowConn(ctx, conn)
 	}
 
 	res := connResult{connected: true}
@@ -168,6 +160,38 @@ func runConn(ctx context.Context, wsURL string, assets []string, slow bool, conn
 		}
 	}
 	return res
+}
+
+// slowReadInterval is how long a "slow" connection (design-plan.md S4)
+// pauses between reads: far slower than the gateway's default 100ms flush
+// cycle, so its outbound queue backs up and the gateway's queue-full
+// eviction fires (gateway_slow_client_evictions_total) - but still well
+// under the transport-level 60s ping/pong timeout (design-plan.md section
+// 6), so the connection stays alive long enough for that backpressure path
+// (rather than a plain dead-peer timeout) to be what actually disconnects
+// it. Calling Read at all (rather than never again) matters: it is what
+// lets the WS library keep servicing the server's transport-level pings
+// while this connection is deliberately not keeping up with data.
+const slowReadInterval = 2 * time.Second
+
+// runSlowConn simulates a slow reader (design-plan.md S4): it keeps the
+// connection nominally alive but reads application data far slower than the
+// gateway produces it, so the gateway's per-client outbound queue fills and
+// its slow-client eviction kicks in.
+func runSlowConn(ctx context.Context, conn *websocket.Conn) connResult {
+	for {
+		select {
+		case <-ctx.Done():
+			return connResult{connected: true, slow: true}
+		case <-time.After(slowReadInterval):
+		}
+		readCtx, cancel := context.WithTimeout(ctx, slowReadInterval)
+		_, _, err := conn.Read(readCtx)
+		cancel()
+		if err != nil {
+			return connResult{connected: true, slow: true, err: err}
+		}
+	}
 }
 
 // pickAssets returns n asset ids from pool for connection index i, wrapping

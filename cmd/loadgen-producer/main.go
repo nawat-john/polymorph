@@ -13,6 +13,7 @@ import (
 	"flag"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ func main() {
 	surgeProb := flag.Float64("surge-prob", 0, "probability (0..1) that any given event is an injected surge (large price jump) rather than a normal random-walk step")
 	workers := flag.Int("workers", 4, "number of concurrent producer goroutines sharing the target rate")
 	duration := flag.Duration("duration", 0, "how long to run before exiting (0 = run until SIGINT/SIGTERM)")
+	realAssetsURL := flag.String("real-assets-url", "", "optional gateway /markets URL (e.g. http://localhost:8081/markets); when set, ticks are generated for these REAL, client-visible asset ids (up to --assets of them) instead of synthetic loadgen-N ids - lets S3/S4-style load tests generate volume that loadgen-clients' real-asset subscriptions actually see. Overwrites those assets' real prices with synthetic noise for the test's duration; a benchmark-only knob, never for production use")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("service", "loadgen-producer")
@@ -60,7 +62,18 @@ func main() {
 	}
 	defer producer.Close()
 
-	states := newAssetStates(*assets)
+	var states assetStates
+	if *realAssetsURL != "" {
+		ids, err := fetchRealAssetIDs(*realAssetsURL, *assets)
+		if err != nil {
+			log.Error("fetch real asset ids", "error", err)
+			os.Exit(1)
+		}
+		states = newAssetStatesFromIDs(ids)
+		log.Info("using real asset ids", "count", len(states), "source", *realAssetsURL)
+	} else {
+		states = newAssetStates(*assets)
+	}
 
 	var produced, errs atomic.Int64
 	perWorker := *workers
@@ -106,6 +119,42 @@ func newAssetStates(n int) assetStates {
 		}
 	}
 	return out
+}
+
+// newAssetStatesFromIDs creates one asset state per real asset id (see
+// -real-assets-url), each starting at a random price in [0.05, 0.95] - the
+// real market's actual current price is not read; this is synthetic load
+// against a real, client-visible id, not a replay of real data.
+func newAssetStatesFromIDs(ids []string) assetStates {
+	out := make(assetStates, len(ids))
+	for i, id := range ids {
+		out[i] = &assetState{assetID: id, marketID: id, price: 0.05 + rand.Float64()*0.9}
+	}
+	return out
+}
+
+// fetchRealAssetIDs GETs a gateway's /markets endpoint (the same shape
+// cmd/loadgen-clients discovers assets from) and returns up to max asset
+// ids.
+func fetchRealAssetIDs(url string, max int) ([]string, error) {
+	resp, err := http.Get(url) //nolint:gosec // url is an operator-supplied benchmark flag, not untrusted input
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var markets []model.Market
+	if err := json.NewDecoder(resp.Body).Decode(&markets); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, m := range markets {
+		ids = append(ids, m.ClobTokenIDs...)
+		if max > 0 && len(ids) >= max {
+			return ids[:max], nil
+		}
+	}
+	return ids, nil
 }
 
 // shard returns the subset of states owned by worker index w of numWorkers
