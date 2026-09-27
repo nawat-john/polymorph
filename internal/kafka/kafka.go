@@ -4,10 +4,62 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
+
+// pollTimeout bounds each individual PollFetches call in ConsumeUpToEnd.
+const pollTimeout = 500 * time.Millisecond
+
+// ConsumeUpToEnd polls cl (already subscribed to topic via ConsumeTopics)
+// and calls onRecord for every fetched record, stopping once every
+// partition has been consumed up to the high watermark recorded at the
+// start of the call (a partition with no records at all is skipped
+// immediately). Used to bootstrap caches from compacted topics.
+//
+// It stops at an explicit end-offset snapshot rather than after "N idle
+// polls": pm.snapshots is written continuously, and an idle heuristic kept
+// getting reset by that live trickle - taking on the order of two minutes
+// once the topic had a few minutes of uncompacted history.
+//
+// cl must not be shared with any other goroutine. cl stays open afterwards
+// (the caller owns it), so no adm.Close() here: that would close cl too.
+func ConsumeUpToEnd(ctx context.Context, cl *kgo.Client, topic string, onRecord func(*kgo.Record)) error {
+	adm := kadm.NewClient(cl)
+
+	ends, err := adm.ListEndOffsets(ctx, topic)
+	if err != nil {
+		return fmt.Errorf("list end offsets for %s: %w", topic, err)
+	}
+
+	target := make(map[int32]int64)
+	ends.Each(func(o kadm.ListedOffset) {
+		if o.Err == nil && o.Offset > 0 {
+			target[o.Partition] = o.Offset // high watermark: next offset to be written
+		}
+	})
+
+	reached := make(map[int32]bool, len(target))
+	for len(reached) < len(target) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		pctx, cancel := context.WithTimeout(ctx, pollTimeout)
+		fetches := cl.PollFetches(pctx)
+		cancel()
+
+		fetches.EachRecord(func(r *kgo.Record) {
+			onRecord(r)
+			if want, ok := target[r.Partition]; ok && r.Offset+1 >= want {
+				reached[r.Partition] = true
+			}
+		})
+	}
+	return nil
+}
 
 // NewProducer returns a franz-go client configured per design-plan.md 4.1:
 // acks=all, ~5ms linger batching, zstd compression (falling back to lz4,

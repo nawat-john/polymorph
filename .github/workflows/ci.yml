@@ -40,6 +40,10 @@ jobs:
         if: hashFiles('web/package.json') != ''
         working-directory: web
         run: npm run check
+      - name: Test
+        if: hashFiles('web/package.json') != ''
+        working-directory: web
+        run: npm test
       - name: Build
         if: hashFiles('web/package.json') != ''
         working-directory: web

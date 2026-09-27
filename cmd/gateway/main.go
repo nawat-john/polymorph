@@ -129,7 +129,7 @@ func main() {
 		latency: newLatencySketch(latencySampleCapacity),
 	}
 
-	// Bounded even though consumeUpToEnd (bootstrap.go) targets a fixed
+	// Bounded even though kafka.ConsumeUpToEnd targets a fixed
 	// offset snapshot rather than an open-ended idle heuristic: a defensive
 	// upper bound in case Kafka is unreachable or a topic is unexpectedly
 	// huge.

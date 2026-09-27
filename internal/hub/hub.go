@@ -12,6 +12,7 @@ package hub
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -206,13 +207,15 @@ func (h *Hub) NewClient(ctx context.Context, conn Conn) *Client {
 			h.metrics.AddBytesOut(frameLen)
 		}
 	}, func(err error) {
-		if err != nil {
-			// The write itself failed or timed out (writeTimeout): this is
-			// the second slow-client disconnect path alongside tickClient's
-			// queue-full check below, and must count the same metric (see
+		if errors.Is(err, context.DeadlineExceeded) {
+			// The write timed out (writeTimeout): this is the second
+			// slow-client disconnect path alongside tickClient's queue-full
+			// check below, and must count the same metric (see
 			// docs/benchmark.md S4 / design-plan.md 4.3's
-			// gateway_slow_client_evictions_total).
-			h.evict(c, statusTryAgainLater, "slow client: write failed or timed out")
+			// gateway_slow_client_evictions_total). Any other write error
+			// (peer closed the tab, connection reset) is an ordinary
+			// disconnect, not a slow client.
+			h.evict(c, statusTryAgainLater, "slow client: write timed out")
 			return
 		}
 		h.RemoveClient(c)

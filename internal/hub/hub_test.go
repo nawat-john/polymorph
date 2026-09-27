@@ -3,7 +3,8 @@ package hub
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -217,7 +218,8 @@ func TestWriteErrorEvictsAndCountsMetric(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fc := newFailingConn(errors.New("simulated write timeout"))
+	// Wrapped like coder/websocket does when the write ctx expires.
+	fc := newFailingConn(fmt.Errorf("failed to write frame: %w", context.DeadlineExceeded))
 	c := h.NewClient(ctx, fc)
 	h.SendHello(c) // gives the writer goroutine a frame to fail on
 
@@ -234,6 +236,30 @@ func TestWriteErrorEvictsAndCountsMetric(t *testing.T) {
 	}
 	if h.ClientCount() != 0 {
 		t.Fatalf("ClientCount() after write-error eviction = %d, want 0", h.ClientCount())
+	}
+}
+
+// TestClosedConnWriteErrorIsNotEviction: a write failing because the peer
+// went away (closed tab, reset) is an ordinary disconnect - the client is
+// removed but not counted as a slow-client eviction.
+func TestClosedConnWriteErrorIsNotEviction(t *testing.T) {
+	h, fm := newTestHub(time.Hour, 500)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := h.NewClient(ctx, newFailingConn(net.ErrClosed))
+	h.SendHello(c)
+
+	deadline := time.After(time.Second)
+	for h.ClientCount() != 0 {
+		select {
+		case <-deadline:
+			t.Fatalf("closed-conn write error did not remove the client")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	if got := fm.evictions.Load(); got != 0 {
+		t.Fatalf("evictions = %d, want 0", got)
 	}
 }
 

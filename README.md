@@ -104,8 +104,8 @@ fetch buffers alive (fixed this phase, see below).
 
 ## This phase's bug fixes
 
-Three real bugs Phase 6's profiling/load-testing surfaced, plus one found
-bringing the stack up for this README, all fixed this phase:
+Bugs Phase 6's profiling/load-testing and the final review surfaced, all
+fixed this phase:
 
 1. **`internal/hub/cache.go`'s tick cache retained whole Kafka fetch
    buffers.** `setTick` stored a `kgo.Record.Value` slice as-is; since
@@ -117,20 +117,27 @@ bringing the stack up for this README, all fixed this phase:
    `docs/benchmark.md`'s pprof section).
 2. **`gateway_slow_client_evictions_total` missed the write-timeout
    disconnect path.** Only the queue-still-full-after-N-flushes path
-   incremented it; a connection that failed/timed out mid-write disconnected
+   incremented it; a connection that timed out mid-write disconnected
    silently, uncounted (found in S4 testing - the metric read `0` while
    slow clients were, correctly, still being dropped). Both disconnect paths
    now route through one `Hub.evict`, with `RemoveClient` reporting whether
    it actually removed anything so a client caught by both paths at once is
-   never double-counted (`TestWriteErrorEvictsAndCountsMetric`).
-3. **`processor_consume_lag` was reset, not accumulated, every poll.** It
+   never double-counted (`TestWriteErrorEvictsAndCountsMetric`). Only a
+   write *timeout* counts; a write failing because the peer simply left
+   (closed tab, reset) is an ordinary disconnect
+   (`TestClosedConnWriteErrorIsNotEviction`).
+3. **Processor bootstrap used an idle-poll heuristic** the gateway had
+   already dropped as unreliable on a continuously-written compacted topic.
+   Both now share `kafka.ConsumeUpToEnd` (`internal/kafka`), which stops at
+   a real `kadm.ListEndOffsets` target.
+4. **`processor_consume_lag` was reset, not accumulated, every poll.** It
    `Set()` the gauge from only the partitions that had records in that one
    batch, silently dropping whatever the other partitions had last reported
    - it read near-0 in `docs/benchmark.md`'s S1 even while real latency was
    climbing past 3 seconds under overload. Replaced with a per-partition map
    persisted across polls and always reported as its full sum
    (`TestPartitionLagAccumulatesAcrossPolls`).
-4. **Empty Market Wall on a fresh `make up`** (found live while preparing
+5. **Empty Market Wall on a fresh `make up`** (found live while preparing
    this README). Gateways and the ingestor start together, so the gateways'
    one-shot `pm.markets` bootstrap usually finished before the ingestor's
    first market discovery, and `pm.markets` was never re-read. The gateway
@@ -151,12 +158,6 @@ fallback, and the `coder/websocket`/`caarlos0/env` dependency choices.
 Honest, drawn from the open items this project's own phases actually found
 (not padded):
 
-- **`cmd/processor/bootstrap.go` still uses the older, weaker idle-timeout
-  heuristic** (`consumeUntilIdle`, 3 idle 500ms polls) that `cmd/gateway`'s
-  own bootstrap moved away from after finding it unreliable on a
-  continuously-written compacted topic (`cmd/gateway/bootstrap.go`'s
-  `consumeUpToEnd` uses a real `kadm.ListEndOffsets` target instead). The
-  processor's version was never upgraded to match.
 - **p99 latency at scale**: not met at any tested client count ≥ 10,000
   (§2's <100ms target). The CPU profile traces this to the syscall cost of
   one `write(2)` per client per flush cycle at high connection counts, not

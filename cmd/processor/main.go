@@ -94,7 +94,11 @@ func main() {
 	}()
 	time.Sleep(500 * time.Millisecond)
 
-	if err := bootstrapSnapshots(ctx, log, cfg.KafkaBrokers, store); err != nil {
+	// Same defensive bound as the gateway's bootstrapTimeout.
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(ctx, 60*time.Second)
+	err = bootstrapSnapshots(bootstrapCtx, log, cfg.KafkaBrokers, store)
+	bootstrapCancel()
+	if err != nil {
 		log.Error("bootstrap pm.snapshots", "error", err)
 		os.Exit(1)
 	}
