@@ -1,5 +1,5 @@
 <script lang="ts">
-  const GITHUB_URL = 'https://github.com/nawat-john/oddspulse'
+  const GITHUB_URL = 'https://github.com/nawat-john/polymorph'
 </script>
 
 <div class="about panel">

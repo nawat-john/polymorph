@@ -30,7 +30,7 @@ Then, for the frontend:
 cd web && npm install && npm run dev
 ```
 
-and open `http://localhost:5173/oddspulse/`. `make down` tears the backend
+and open `http://localhost:5173/polymorph/`. `make down` tears the backend
 back down.
 
 Want load instead of (or alongside) real Polymarket data? `cmd/loadgen-producer`

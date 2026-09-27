@@ -66,10 +66,14 @@ In the repo's Settings:
   (a GHCR read token) done once by hand so `docker compose pull` can pull
   those images, unless the images are made public in GHCR's package
   settings.
-- Confirm `web/vite.config.ts`'s `base` (`/oddspulse/`) and
+- `web/vite.config.ts`'s `base` (`/polymorph/`) and
   `web/src/pages/About.svelte`'s `GITHUB_URL`
-  (`https://github.com/nawat-john/oddspulse`) match whatever repo name/owner
-  you actually created in step 1 - update them if not.
+  (`https://github.com/nawat-john/polymorph`) must match the repo
+  name/owner - update both if the repo is renamed.
+- `deploy/docker-compose.prod.yml`'s `GW_ALLOWED_ORIGINS`
+  (`https://nawatpim.com`, plus `http://` until HTTPS is enforced on the
+  domain) must match the Pages site's origin, or every browser WebSocket to
+  the gateway is rejected.
 
 ## 5. First real deploy
 
