@@ -1,0 +1,73 @@
+/* Dark, trading-terminal theme (design-plan.md section 7/12). */
+:root {
+  --bg: #0a0e14;
+  --bg-panel: #10151f;
+  --bg-tile: #161c28;
+  --border: #232b3a;
+  --text: #d7dde8;
+  --text-dim: #7c8797;
+  --accent: #4da3ff;
+  --green: #2ecc71;
+  --green-strong: #17a35a;
+  --red: #ff5c5c;
+  --red-strong: #e0293f;
+  --font-mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--accent);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.up {
+  color: var(--green);
+}
+
+.down {
+  color: var(--red);
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
