@@ -41,5 +41,28 @@ services:
       - ./redpanda/init-topics.sh:/init-topics.sh:ro
     restart: "no"
 
+  ingestor:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: ingestor
+    depends_on:
+      redpanda-init:
+        condition: service_completed_successfully
+    environment:
+      # Design plan section 13. Reconnect backoff (500ms->30s + jitter, see
+      # internal/polymarket/clobws) keeps this from hammering Polymarket even
+      # if left running misconfigured.
+      KAFKA_BROKERS: redpanda:9092
+      PM_GAMMA_URL: https://gamma-api.polymarket.com
+      PM_WS_URL: wss://ws-subscriptions-clob.polymarket.com/ws/market
+      PM_MAX_ASSETS: "1000"
+      PM_ASSETS_PER_CONN: "200"
+      METRICS_ADDR: ":9090"
+    ports:
+      - "9091:9090" # /metrics; scraped by Prometheus once it lands in Phase 5
+    restart: unless-stopped
+
 volumes:
   redpanda-data:

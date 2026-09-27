@@ -22,6 +22,7 @@ type Config struct {
 	IdleTimeout   time.Duration // treat the connection as dropped if nothing arrives within this
 	MinBackoff    time.Duration // design-plan.md 4.1: 500ms -> 30s exponential backoff + jitter
 	MaxBackoff    time.Duration
+	ReadLimit     int64 // max bytes per WS message; see DefaultConfig's comment
 }
 
 // DefaultConfig fills in the values design-plan.md and polymarket-notes.md
@@ -34,6 +35,13 @@ func DefaultConfig(wsURL string, assetsPerConn int) Config {
 		IdleTimeout:   30 * time.Second,
 		MinBackoff:    500 * time.Millisecond,
 		MaxBackoff:    30 * time.Second,
+		// coder/websocket defaults to a 32KiB read limit, which the initial
+		// post-subscribe book snapshot for a full ~200-asset shard blows
+		// past in practice (confirmed against the live server: default
+		// limit made every shard fail immediately with "message too big").
+		// 16MiB comfortably covers a full-depth snapshot for a shard while
+		// still bounding a single message.
+		ReadLimit: 16 * 1024 * 1024,
 	}
 }
 
@@ -220,6 +228,9 @@ func (m *Manager) runShardOnce(ctx context.Context, id int, assets []string) (ti
 		return 0, err
 	}
 	defer func() { _ = conn.CloseNow() }()
+	if m.cfg.ReadLimit != 0 {
+		conn.SetReadLimit(m.cfg.ReadLimit)
+	}
 
 	sub := subscribeMessage{AssetsIDs: assets, Type: "market"}
 	payload, err := json.Marshal(sub)
