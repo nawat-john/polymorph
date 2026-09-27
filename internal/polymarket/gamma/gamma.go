@@ -25,6 +25,7 @@ const DefaultPageSize = 500
 // json.Unmarshal in toModel.
 type wireMarket struct {
 	ID           string  `json:"id"`
+	ConditionID  string  `json:"conditionId"`
 	Question     string  `json:"question"`
 	Slug         string  `json:"slug"`
 	EndDate      string  `json:"endDate"`
@@ -35,10 +36,17 @@ type wireMarket struct {
 	ClobTokenIDs string  `json:"clobTokenIds"`
 }
 
+// toModel converts a Gamma wire market into the pm.markets schema. MarketID
+// is set to conditionId, not Gamma's own numeric id: the RawEvent.market_id
+// that arrives over the CLOB WS (see clobws' "market" field, e.g.
+// "0xabc..." in design-plan.md's own example) is the condition id, confirmed
+// live by matching internal/polymarket/testdata/gamma-markets.sample.json's
+// conditionId values against clobws-market.sample.ndjson's "market" field.
+// Using the same id here is what lets pm.raw/pm.ticks join back to pm.markets.
 func (w wireMarket) toModel() (model.Market, error) {
 	m := model.Market{
 		V:        model.MarketVersion,
-		MarketID: w.ID,
+		MarketID: w.ConditionID,
 		Question: w.Question,
 		Slug:     w.Slug,
 		EndDate:  w.EndDate,

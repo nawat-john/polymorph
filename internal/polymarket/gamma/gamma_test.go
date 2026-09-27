@@ -76,9 +76,11 @@ func TestFetchActiveMarkets_RealSample(t *testing.T) {
 
 	// Spot-check market 4813637 (Minnesota vs. Washington) against the real
 	// captured fields, including the double-JSON-encoded clobTokenIds/outcomes.
-	i, ok := byID["4813637"]
+	// Keyed by conditionId (see toModel's doc comment for why).
+	const conditionID = "0xaace8abeca704f81a4defeb1ef2da5a28874e120167709ec8435ad2726756204"
+	i, ok := byID[conditionID]
 	if !ok {
-		t.Fatalf("market 4813637 not found in %+v", markets)
+		t.Fatalf("market %s not found in %+v", conditionID, markets)
 	}
 	m := markets[i]
 	if m.Question != "Minnesota vs. Washington" {
@@ -121,9 +123,12 @@ func TestTopNByVolume_RealSample(t *testing.T) {
 		t.Fatalf("got %d, want 2", len(top))
 	}
 	// Real volumeNum values: 4813637=1197862.31, 4641064=1521804.88,
-	// 2772194=22892933.90 - so top 2 by volume are 2772194 then 4641064.
-	if top[0].MarketID != "2772194" || top[1].MarketID != "4641064" {
-		t.Errorf("got order %s, %s; want 2772194, 4641064", top[0].MarketID, top[1].MarketID)
+	// 2772194=22892933.90 - so top 2 by volume are 2772194 then 4641064
+	// (market_id is conditionId - see toModel's doc comment).
+	const cond2772194 = "0xefa17dee3af09f69f9ddf245b969aa4efbe7c71cdf06ee49d694408bc33e2ed2"
+	const cond4641064 = "0x690fafd3b7bb8b4919ccf0f219b0014b65334411a1076162e76353e76d7f9bec"
+	if top[0].MarketID != cond2772194 || top[1].MarketID != cond4641064 {
+		t.Errorf("got order %s, %s; want %s, %s", top[0].MarketID, top[1].MarketID, cond2772194, cond4641064)
 	}
 	if top[0].Volume < top[1].Volume {
 		t.Errorf("not sorted descending: %v < %v", top[0].Volume, top[1].Volume)
